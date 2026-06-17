@@ -198,7 +198,11 @@ class DiffusionTrainingModule(torch.nn.Module):
                     device=device
                 )
                 config = self.parse_path_or_model_id(model_id_with_origin_path)
-                model_configs.append(ModelConfig(model_id=config.model_id, origin_file_pattern=config.origin_file_pattern, **vram_config))
+                # Support local paths: if config.path is set, use it; otherwise use model_id + origin_file_pattern
+                if config.path is not None:
+                    model_configs.append(ModelConfig(path=config.path, **vram_config))
+                else:
+                    model_configs.append(ModelConfig(model_id=config.model_id, origin_file_pattern=config.origin_file_pattern, **vram_config))
         return model_configs
     
 
