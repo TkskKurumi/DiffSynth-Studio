@@ -39,6 +39,9 @@ def add_training_config(parser: argparse.ArgumentParser):
     parser.add_argument("--weight_decay", type=float, default=0.01, help="Weight decay.")
     parser.add_argument("--task", type=str, default="sft", required=False, help="Task type.")
     parser.add_argument("--customized_optimizer", type=str, default=None, help="Customized optimizer, e.g., `bitsandbytes.optim.Adam8bit` and `torch.optim.Adam`. The default optimizer is `torch.optim.AdamW`.")
+    parser.add_argument("--show-loss", default=False, action="store_true", help="Show raw per-batch loss in the training tqdm progress bar.")
+    parser.add_argument("--show-smooth-loss", default=False, action="store_true", help="Show EMA-smoothed loss in the training tqdm progress bar. Uses a 500-step window with bias correction.")
+    parser.add_argument("--dump-loss-file", type=str, default=None, help="Path to a CSV-like loss log. Only the main process writes lines formatted as step,loss.")
     return parser
 
 def add_output_config(parser: argparse.ArgumentParser):
