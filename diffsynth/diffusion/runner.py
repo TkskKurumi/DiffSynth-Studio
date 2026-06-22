@@ -3,22 +3,25 @@ from tqdm import tqdm
 from accelerate import Accelerator
 from .training_module import DiffusionTrainingModule
 from .logger import ModelLogger
+from .lr_scheduler import get_scheduler
 from diffsynth.core import OffloadTrainingManager
 
 
 class LossMonitor:
-    def __init__(self, accelerator, show_loss=False, show_smooth_loss=False, dump_loss_file=None, smooth_steps=500):
+    def __init__(self, accelerator, optimizer=None, show_loss=False, show_smooth_loss=False, dump_loss_file=None, smooth_steps=500):
         self.accelerator = accelerator
+        self.optimizer = optimizer
         self.show_loss = show_loss
         self.show_smooth_loss = show_smooth_loss
         self.smooth_steps = max(int(smooth_steps), 1)
+        self.is_main = accelerator.is_main_process
         self.optimizer_step = 0
         self.accum_loss_sum = 0.0
         self.accum_count = 0
         self.ema_loss = 0.0
         self.ema_steps = 0
         self.dump_file = None
-        if dump_loss_file is not None and accelerator.is_main_process:
+        if dump_loss_file is not None and self.is_main:
             dump_dir = os.path.dirname(os.path.abspath(dump_loss_file))
             os.makedirs(dump_dir, exist_ok=True)
             self.dump_file = open(dump_loss_file, "w", buffering=1)
@@ -61,7 +64,15 @@ class LossMonitor:
             bias_correction = 1.0
         return self.ema_loss / bias_correction
 
+    def _get_current_lr(self):
+        if self.optimizer is None:
+            return None
+        if len(self.optimizer.param_groups) == 0:
+            return None
+        return self.optimizer.param_groups[0]["lr"]
+
     def update(self, loss, data, progress_bar=None):
+        # All processes must execute _global_loss() because gather() is a DDP sync point.
         global_loss = self._global_loss(loss, data)
         if global_loss is None:
             return
@@ -72,6 +83,10 @@ class LossMonitor:
         if self.show_loss:
             postfix["loss"] = f"{global_loss:.6g}"
 
+        current_lr = self._get_current_lr()
+        if current_lr is not None:
+            postfix["lr"] = f"{current_lr:.6g}"
+
         sync_gradients = getattr(self.accelerator, "sync_gradients", True)
         if sync_gradients:
             effective_loss = self.accum_loss_sum / self.accum_count
@@ -81,9 +96,10 @@ class LossMonitor:
             if self.show_smooth_loss:
                 postfix["smooth_loss"] = f"{self._update_smooth_loss(effective_loss):.6g}"
             if self.dump_file is not None:
-                self.dump_file.write(f"{self.optimizer_step},{effective_loss:.10g}\n")
+                lr_str = f",{current_lr:.10g}" if current_lr is not None else ""
+                self.dump_file.write(f"{self.optimizer_step},{effective_loss:.10g}{lr_str}\n")
 
-        if postfix and progress_bar is not None:
+        if postfix and progress_bar is not None and self.is_main:
             progress_bar.set_postfix(postfix)
 
 
@@ -111,8 +127,12 @@ def launch_training_task(
     enable_optimizer_cpu_offload: bool = False,
     cpu_offload_split_threshold: int = None,
     customized_optimizer: str = None,
+    lr_scheduler: str = "constant",
+    warmup_steps: int = 0,
+    restart_steps: int = 1000,
     show_loss: bool = False,
     show_smooth_loss: bool = False,
+    show_lr: bool = False,
     dump_loss_file: str = None,
     args = None,
     **kwargs,
@@ -127,13 +147,17 @@ def launch_training_task(
         enable_optimizer_cpu_offload = args.enable_optimizer_cpu_offload
         cpu_offload_split_threshold = args.cpu_offload_split_threshold
         customized_optimizer = args.customized_optimizer
+        lr_scheduler = args.lr_scheduler
+        warmup_steps = args.warmup_steps
+        restart_steps = args.restart_steps
         show_loss = args.show_loss
         show_smooth_loss = args.show_smooth_loss
+        show_lr = args.show_lr
         dump_loss_file = args.dump_loss_file
 
     optimizer_class = get_optimizer_class(customized_optimizer)
     optimizer = optimizer_class(model.trainable_modules(), lr=learning_rate, weight_decay=weight_decay)
-    scheduler = torch.optim.lr_scheduler.ConstantLR(optimizer)
+    scheduler = get_scheduler(optimizer, scheduler_type=lr_scheduler, warmup_steps=warmup_steps, restart_steps=restart_steps)
     dataloader = torch.utils.data.DataLoader(dataset, shuffle=True, collate_fn=lambda x: x[0], num_workers=num_workers)
 
     if enable_model_cpu_offload:
@@ -146,16 +170,17 @@ def launch_training_task(
 
     initialize_deepspeed_gradient_checkpointing(accelerator)
     loss_monitor = None
-    if show_loss or show_smooth_loss or dump_loss_file is not None:
+    if show_loss or show_smooth_loss or show_lr or dump_loss_file is not None:
         loss_monitor = LossMonitor(
             accelerator,
+            optimizer=optimizer,
             show_loss=show_loss,
             show_smooth_loss=show_smooth_loss,
             dump_loss_file=dump_loss_file,
         )
     try:
         for epoch_id in range(num_epochs):
-            progress_bar = tqdm(dataloader)
+            progress_bar = tqdm(dataloader, dynamic_ncols=True)
             for data in progress_bar:
                 with accelerator.accumulate(model):
                     if dataset.load_from_cache:
