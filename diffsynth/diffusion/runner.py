@@ -127,9 +127,11 @@ def launch_training_task(
     enable_optimizer_cpu_offload: bool = False,
     cpu_offload_split_threshold: int = None,
     customized_optimizer: str = None,
+    optimizer_kwargs: str = None,
     lr_scheduler: str = "constant",
     warmup_steps: int = 0,
     restart_steps: int = 1000,
+    edecay_steps: int = 10000,
     show_loss: bool = False,
     show_smooth_loss: bool = False,
     show_lr: bool = False,
@@ -147,17 +149,26 @@ def launch_training_task(
         enable_optimizer_cpu_offload = args.enable_optimizer_cpu_offload
         cpu_offload_split_threshold = args.cpu_offload_split_threshold
         customized_optimizer = args.customized_optimizer
+        optimizer_kwargs = args.optimizer_kwargs
         lr_scheduler = args.lr_scheduler
         warmup_steps = args.warmup_steps
         restart_steps = args.restart_steps
+        edecay_steps = args.edecay_steps
         show_loss = args.show_loss
         show_smooth_loss = args.show_smooth_loss
         show_lr = args.show_lr
         dump_loss_file = args.dump_loss_file
 
     optimizer_class = get_optimizer_class(customized_optimizer)
-    optimizer = optimizer_class(model.trainable_modules(), lr=learning_rate, weight_decay=weight_decay)
-    scheduler = get_scheduler(optimizer, scheduler_type=lr_scheduler, warmup_steps=warmup_steps, restart_steps=restart_steps)
+    
+    # Build optimizer kwargs
+    opt_kwargs = {"lr": learning_rate, "weight_decay": weight_decay}
+    if optimizer_kwargs is not None:
+        import ast
+        opt_kwargs.update(ast.literal_eval(optimizer_kwargs))
+    
+    optimizer = optimizer_class(model.trainable_modules(), **opt_kwargs)
+    scheduler = get_scheduler(optimizer, scheduler_type=lr_scheduler, warmup_steps=warmup_steps, restart_steps=restart_steps, edecay_steps=edecay_steps)
     dataloader = torch.utils.data.DataLoader(dataset, shuffle=True, collate_fn=lambda x: x[0], num_workers=num_workers)
 
     if enable_model_cpu_offload:
