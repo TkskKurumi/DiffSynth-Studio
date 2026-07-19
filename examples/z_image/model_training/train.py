@@ -111,6 +111,7 @@ if __name__ == "__main__":
     accelerator = accelerate.Accelerator(
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         kwargs_handlers=[accelerate.DistributedDataParallelKwargs(find_unused_parameters=args.find_unused_parameters)],
+        step_scheduler_with_optimizer=False,
     )
     dataset = UnifiedDataset(
         base_path=args.dataset_base_path,

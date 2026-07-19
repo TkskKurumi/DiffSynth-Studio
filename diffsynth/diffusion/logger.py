@@ -102,6 +102,10 @@ class ModelLogger:
         if accelerator.is_main_process:
             state_dict = accelerator.unwrap_model(model).export_trainable_state_dict(state_dict, remove_prefix=self.remove_prefix_in_ckpt)
             state_dict = self.state_dict_converter(state_dict)
-            os.makedirs(self.output_path, exist_ok=True)
+            try:
+                os.makedirs(self.output_path, exist_ok=True)
+            except:
+                print("error save model to", self.output_path)
+                raise
             path = os.path.join(self.output_path, file_name)
             accelerator.save(state_dict, path, safe_serialization=True)

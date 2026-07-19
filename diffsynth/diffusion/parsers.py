@@ -39,6 +39,13 @@ def add_training_config(parser: argparse.ArgumentParser):
     parser.add_argument("--weight_decay", type=float, default=0.01, help="Weight decay.")
     parser.add_argument("--task", type=str, default="sft", required=False, help="Task type.")
     parser.add_argument("--customized_optimizer", type=str, default=None, help="Customized optimizer, e.g., `bitsandbytes.optim.Adam8bit` and `torch.optim.Adam`. The default optimizer is `torch.optim.AdamW`.")
+    parser.add_argument("--optimizer-kwargs", type=str, default=None, help="Optimizer kwargs as dict string, e.g., '{\"beta1\": 0.995}'. Will be passed to optimizer constructor with **. Default: None.")
+    parser.add_argument("--lr-scheduler", type=str, default="constant", choices=["constant", "cosine-warmup-restart"], help="Learning rate scheduler type. Default: constant.")
+    parser.add_argument("--scheduler-kwargs", type=str, default=None, help="Scheduler kwargs as dict string, e.g., '{\"warmup_steps\": 0, \"restart_steps\": 1000, \"edecay_steps\": 10000}'. Will be passed to scheduler constructor with **. Default: None.")
+    parser.add_argument("--show-loss", default=False, action="store_true", help="Show raw per-batch loss in the training tqdm progress bar.")
+    parser.add_argument("--show-smooth-loss", default=False, action="store_true", help="Show EMA-smoothed loss in the training tqdm progress bar. Uses a 500-step window with bias correction.")
+    parser.add_argument("--show-lr", default=False, action="store_true", help="Show current learning rate in the training tqdm progress bar.")
+    parser.add_argument("--dump-loss-file", type=str, default=None, help="Path to a CSV-like loss log. Only the main process writes lines formatted as step,loss,lr.")
     return parser
 
 def add_output_config(parser: argparse.ArgumentParser):
