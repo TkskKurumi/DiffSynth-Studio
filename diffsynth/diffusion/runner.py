@@ -129,9 +129,7 @@ def launch_training_task(
     customized_optimizer: str = None,
     optimizer_kwargs: str = None,
     lr_scheduler: str = "constant",
-    warmup_steps: int = 0,
-    restart_steps: int = 1000,
-    edecay_steps: int = 10000,
+    scheduler_kwargs: str = None,
     show_loss: bool = False,
     show_smooth_loss: bool = False,
     show_lr: bool = False,
@@ -151,9 +149,7 @@ def launch_training_task(
         customized_optimizer = args.customized_optimizer
         optimizer_kwargs = args.optimizer_kwargs
         lr_scheduler = args.lr_scheduler
-        warmup_steps = args.warmup_steps
-        restart_steps = args.restart_steps
-        edecay_steps = args.edecay_steps
+        scheduler_kwargs = args.scheduler_kwargs
         show_loss = args.show_loss
         show_smooth_loss = args.show_smooth_loss
         show_lr = args.show_lr
@@ -168,7 +164,14 @@ def launch_training_task(
         opt_kwargs.update(ast.literal_eval(optimizer_kwargs))
     
     optimizer = optimizer_class(model.trainable_modules(), **opt_kwargs)
-    scheduler = get_scheduler(optimizer, scheduler_type=lr_scheduler, warmup_steps=warmup_steps, restart_steps=restart_steps, edecay_steps=edecay_steps)
+    
+    # Build scheduler kwargs
+    sched_kwargs = {}
+    if scheduler_kwargs is not None:
+        import ast
+        sched_kwargs = ast.literal_eval(scheduler_kwargs)
+    
+    scheduler = get_scheduler(optimizer, scheduler_type=lr_scheduler, scheduler_kwargs=sched_kwargs)
     dataloader = torch.utils.data.DataLoader(dataset, shuffle=True, collate_fn=lambda x: x[0], num_workers=num_workers)
 
     if enable_model_cpu_offload:
