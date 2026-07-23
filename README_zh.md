@@ -14,6 +14,8 @@
 ## 简介
 
 > DiffSynth-Studio 文档：[中文版](https://diffsynth-studio-doc.readthedocs.io/zh-cn/latest/)、[English version](https://diffsynth-studio-doc.readthedocs.io/en/latest/)
+> 
+> DiffSynth-Studio Skills：[DiffSynth-Studio Model Integration Skills](https://www.modelscope.cn/collections/DiffSynth-Studio/DiffSynth-Studio-Model-Integration-Skills)
 
 欢迎来到 Diffusion 模型的魔法世界！DiffSynth-Studio 是由[魔搭社区](https://www.modelscope.cn/)团队开发和维护的开源 Diffusion 模型引擎。我们期望以框架建设孵化技术创新，凝聚开源社区的力量，探索生成式模型技术的边界！
 
@@ -33,6 +35,12 @@ DiffSynth 目前包括两个开源项目：
 > DiffSynth-Studio 经历了大版本更新，部分旧功能已停止维护，如需使用旧版功能，请切换到大版本更新前的[最后一个历史版本](https://github.com/modelscope/DiffSynth-Studio/tree/afd101f3452c9ecae0c87b79adfa2e22d65ffdc3)。
 
 > 目前本项目的开发人员有限，大部分工作由 [Artiprocher](https://github.com/Artiprocher) 和 [mi804](https://github.com/mi804) 负责，因此新功能的开发进展会比较缓慢，issue 的回复和解决速度有限，我们对此感到非常抱歉，请各位开发者理解。
+
+- **2026年7月21日** 我们开源了 [DiffSynth-Studio Model Integration Skills](https://www.modelscope.cn/collections/DiffSynth-Studio/DiffSynth-Studio-Model-Integration-Skills)。这是一套可组合的 Agent Skill 合集，将外部扩散模型接入 DiffSynth-Studio 的全流程自动化，大幅提升模型接入标准化程度与效率。从[使用示例](https://www.modelscope.cn/skills/DiffSynth-Studio/diffsynth-integrator/file/view/master/example.md?status=1)开始体验吧！
+
+- **2026年6月29日** Boogu-Image 开源，已支持文生图推理、图像编辑、低显存推理和训练能力。详情请参考[文档](/docs/zh/Model_Details/Boogu-Image.md)和[示例代码](/examples/boogu_image/)。
+
+- **2026年6月24日** Krea-2 开源，我们已提供全面支持。详情请参考[文档](/docs/zh/Model_Details/Krea-2.md)和[示例代码](/examples/krea2/)。
 
 - **2026年6月16日** 我们为 ACE-Step 新增了 Template 模型：[vocals2music](https://www.modelscope.cn/models/DiffSynth-Studio/acestep15xlsft-vocals2music)。详情请参考[文档](/docs/zh/Model_Details/ACE-Step.md)和[示例代码](/examples/ace_step/)。
 
@@ -259,7 +267,7 @@ DiffSynth-Studio 为主流 Diffusion 模型（包括 FLUX、Wan 等）重新设�
 > 
 > ```python
 > import os
-> os.environ["MODELSCOPE_DOMAIN"] = "www.modelscope.ai"
+> os.environ["MODELSCOPE_ENDPOINT"] = "https://modelscope.ai"
 > ```
 > 
 > 如需从其他站点下载，请修改[环境变量 DIFFSYNTH_DOWNLOAD_SOURCE](/docs/zh/Pipeline_Usage/Environment_Variables.md#diffsynth_download_source)。
@@ -1038,6 +1046,124 @@ Ideogram 4 的示例代码位于：[/examples/ideogram4/](/examples/ideogram4/)
 | 模型 ID | 推理 | 低显存推理 | 全量训练 | 全量训练后验证 | LoRA 训练 | LoRA 训练后验证 |
 |-|-|-|-|-|-|-|
 |[ideogram-ai/ideogram-4-fp8](https://www.modelscope.cn/models/ideogram-ai/ideogram-4-fp8)|[code](/examples/ideogram4/model_inference/ideogram-4-fp8.py)|-|-|-|-|-|
+|[DiffSynth-Studio/ideogram-4-bf16-repackage](https://www.modelscope.cn/models/DiffSynth-Studio/ideogram-4-bf16-repackage)|[code](/examples/ideogram4/model_inference/ideogram-4-bf16-repackage.py)|[code](/examples/ideogram4/model_inference_low_vram/ideogram-4-bf16-repackage.py)|[code](/examples/ideogram4/model_training/full/Ideogram-4-bf16-repackage.sh)|-|[code](/examples/ideogram4/model_training/lora/Ideogram-4-bf16-repackage.sh)|[code](/examples/ideogram4/model_training/validate_lora/Ideogram-4-bf16-repackage.py)|
+
+</details>
+
+#### Krea-2: [/docs/zh/Model_Details/Krea-2.md](/docs/zh/Model_Details/Krea-2.md)
+
+<details>
+
+<summary>快速开始</summary>
+
+运行以下代码可以快速加载 [krea/Krea-2-Raw](https://www.modelscope.cn/models/krea/Krea-2-Raw) 模型并进行推理。显存管理已启动，框架会自动根据剩余显存控制模型参数的加载，最低 24G 显存即可运行。
+
+```python
+from diffsynth.pipelines.krea2 import Krea2Pipeline, ModelConfig
+import torch
+
+vram_config = {
+    "offload_dtype": "disk",
+    "offload_device": "disk",
+    "onload_dtype": torch.float8_e4m3fn,
+    "onload_device": "cpu",
+    "preparing_dtype": torch.float8_e4m3fn,
+    "preparing_device": "cuda",
+    "computation_dtype": torch.bfloat16,
+    "computation_device": "cuda",
+}
+pipe = Krea2Pipeline.from_pretrained(
+    torch_dtype=torch.bfloat16,
+    device="cuda",
+    model_configs=[
+        ModelConfig(model_id="krea/Krea-2-Raw", origin_file_pattern="raw.safetensors", **vram_config),
+        ModelConfig(model_id="Qwen/Qwen3-VL-4B-Instruct", origin_file_pattern="*.safetensors", **vram_config),
+        ModelConfig(model_id="Qwen/Qwen-Image", origin_file_pattern="vae/diffusion_pytorch_model.safetensors", **vram_config),
+    ],
+    tokenizer_config=ModelConfig(model_id="Qwen/Qwen3-VL-4B-Instruct", origin_file_pattern=""),
+    vram_limit=torch.cuda.mem_get_info("cuda")[1] / (1024 ** 3) - 1,
+)
+prompt = "A cat standing on a stone."
+image = pipe(prompt, seed=0, num_inference_steps=52, cfg_scale=4.5)
+image.save("image.jpg")
+```
+
+</details>
+
+<details>
+
+<summary>示例代码</summary>
+
+Krea-2 的示例代码位于：[/examples/krea2/](/examples/krea2/)
+
+| 模型 ID | 推理 | 低显存推理 | 全量训练 | 全量训练后验证 | LoRA 训练 | LoRA 训练后验证 |
+|-|-|-|-|-|-|-|
+|[krea/Krea-2-Raw](https://www.modelscope.cn/models/krea/Krea-2-Raw)|[code](/examples/krea2/model_inference/Krea-2-Raw.py)|[code](/examples/krea2/model_inference_low_vram/Krea-2-Raw.py)|[code](/examples/krea2/model_training/full/Krea-2-Raw.sh)|[code](/examples/krea2/model_training/validate_full/Krea-2-Raw.py)|[code](/examples/krea2/model_training/lora/Krea-2-Raw.sh)|[code](/examples/krea2/model_training/validate_lora/Krea-2-Raw.py)|
+|[krea/Krea-2-Turbo](https://www.modelscope.cn/models/krea/Krea-2-Turbo)|[code](/examples/krea2/model_inference/Krea-2-Turbo.py)|[code](/examples/krea2/model_inference_low_vram/Krea-2-Turbo.py)|[code](/examples/krea2/model_training/full/Krea-2-Turbo.sh)|[code](/examples/krea2/model_training/validate_full/Krea-2-Turbo.py)|[code](/examples/krea2/model_training/lora/Krea-2-Turbo.sh)|[code](/examples/krea2/model_training/validate_lora/Krea-2-Turbo.py)|
+
+</details>
+
+#### Boogu-Image：[/docs/zh/Model_Details/Boogu-Image.md](/docs/zh/Model_Details/Boogu-Image.md)
+
+<details>
+
+<summary>快速开始</summary>
+
+运行以下代码可以快速加载 [Boogu/Boogu-Image-0.1-Base](https://modelscope.cn/models/Boogu/Boogu-Image-0.1-Base) 模型并进行推理。显存管理已启动，框架会自动根据剩余显存控制模型参数的加载，最低 8G 显存即可运行。
+
+```python
+from diffsynth.pipelines.boogu_image import BooguImagePipeline, ModelConfig
+import torch
+
+
+vram_config = {
+    "offload_dtype": torch.float8_e4m3fn,
+    "offload_device": "cpu",
+    "onload_dtype": torch.float8_e4m3fn,
+    "onload_device": "cpu",
+    "preparing_dtype": torch.float8_e4m3fn,
+    "preparing_device": "cuda",
+    "computation_dtype": torch.bfloat16,
+    "computation_device": "cuda",
+}
+
+pipe = BooguImagePipeline.from_pretrained(
+    torch_dtype=torch.bfloat16,
+    device="cuda",
+    model_configs=[
+        ModelConfig(model_id="Boogu/Boogu-Image-0.1-Base", origin_file_pattern="transformer/*.safetensors", **vram_config),
+        ModelConfig(model_id="Boogu/Boogu-Image-0.1-Base", origin_file_pattern="mllm/*.safetensors", **vram_config),
+        ModelConfig(model_id="Boogu/Boogu-Image-0.1-Base", origin_file_pattern="vae/*.safetensors", **vram_config),
+    ],
+    processor_config=ModelConfig(model_id="Boogu/Boogu-Image-0.1-Base", origin_file_pattern="mllm/"),
+    vram_limit=torch.cuda.mem_get_info("cuda")[1] / (1024 ** 3) - 0.5,
+)
+
+output = pipe(
+    prompt="a cat",
+    negative_prompt="",
+    height=1024,
+    width=1024,
+    seed=42,
+    num_inference_steps=50,
+    cfg_scale=4.0,
+)
+output.save("image_Boogu-Image-0.1-Base.jpg")
+```
+
+</details>
+
+<details>
+
+<summary>示例代码</summary>
+
+Boogu-Image 的示例代码位于：[/examples/boogu_image/](/examples/boogu_image/)
+
+|模型 ID|推理|低显存推理|全量训练|全量训练后验证|LoRA 训练|LoRA 训练后验证|
+|-|-|-|-|-|-|-|
+|[Boogu/Boogu-Image-0.1-Base](https://modelscope.cn/models/Boogu/Boogu-Image-0.1-Base)|[code](/examples/boogu_image/model_inference/Boogu-Image-0.1-Base.py)|[code](/examples/boogu_image/model_inference_low_vram/Boogu-Image-0.1-Base.py)|[code](/examples/boogu_image/model_training/full/Boogu-Image-0.1-Base.sh)|[code](/examples/boogu_image/model_training/validate_full/Boogu-Image-0.1-Base.py)|[code](/examples/boogu_image/model_training/lora/Boogu-Image-0.1-Base.sh)|[code](/examples/boogu_image/model_training/validate_lora/Boogu-Image-0.1-Base.py)|
+|[Boogu/Boogu-Image-0.1-Turbo](https://modelscope.cn/models/Boogu/Boogu-Image-0.1-Turbo)|[code](/examples/boogu_image/model_inference/Boogu-Image-0.1-Turbo.py)|[code](/examples/boogu_image/model_inference_low_vram/Boogu-Image-0.1-Turbo.py)|[code](/examples/boogu_image/model_training/full/Boogu-Image-0.1-Turbo.sh)|[code](/examples/boogu_image/model_training/validate_full/Boogu-Image-0.1-Turbo.py)|[code](/examples/boogu_image/model_training/lora/Boogu-Image-0.1-Turbo.sh)|[code](/examples/boogu_image/model_training/validate_lora/Boogu-Image-0.1-Turbo.py)|
+|[Boogu/Boogu-Image-0.1-Edit](https://modelscope.cn/models/Boogu/Boogu-Image-0.1-Edit)|[code](/examples/boogu_image/model_inference/Boogu-Image-0.1-Edit.py)|[code](/examples/boogu_image/model_inference_low_vram/Boogu-Image-0.1-Edit.py)|[code](/examples/boogu_image/model_training/full/Boogu-Image-0.1-Edit.sh)|[code](/examples/boogu_image/model_training/validate_full/Boogu-Image-0.1-Edit.py)|[code](/examples/boogu_image/model_training/lora/Boogu-Image-0.1-Edit.sh)|[code](/examples/boogu_image/model_training/validate_lora/Boogu-Image-0.1-Edit.py)|
 
 </details>
 
@@ -1316,8 +1442,8 @@ Wan 的示例代码位于：[/examples/wanvideo/](/examples/wanvideo/)
 |[PAI/Wan2.2-Fun-A14B-Control-Camera](https://modelscope.cn/models/PAI/Wan2.2-Fun-A14B-Control-Camera)|`control_camera_video`, `input_image`|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_inference/Wan2.2-Fun-A14B-Control-Camera.py)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_inference_low_vram/Wan2.2-Fun-A14B-Control-Camera.py)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_training/full/Wan2.2-Fun-A14B-Control-Camera.sh)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_training/validate_full/Wan2.2-Fun-A14B-Control-Camera.py)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_training/lora/Wan2.2-Fun-A14B-Control-Camera.sh)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_training/validate_lora/Wan2.2-Fun-A14B-Control-Camera.py)|
 |[openmoss/MOVA-360p](https://modelscope.cn/models/openmoss/MOVA-360p)|`input_image`|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/mova/model_inference/MOVA-360p-I2AV.py)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/mova/model_inference_low_vram/MOVA-360p-I2AV.py)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/mova/model_training/full/MOVA-360P-I2AV.sh)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/mova/model_training/validate_full/MOVA-360p-I2AV.py)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/mova/model_training/lora/MOVA-360P-I2AV.sh)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/mova/model_training/validate_lora/MOVA-360p-I2AV.py)|
 |[openmoss/MOVA-720p](https://modelscope.cn/models/openmoss/MOVA-720p)|`input_image`|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/mova/model_inference/MOVA-720p-I2AV.py)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/mova/model_inference_low_vram/MOVA-720p-I2AV.py)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/mova/model_training/full/MOVA-720P-I2AV.sh)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/mova/model_training/validate_full/MOVA-720p-I2AV.py)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/mova/model_training/lora/MOVA-720P-I2AV.sh)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/mova/model_training/validate_lora/MOVA-720p-I2AV.py)|
-|[Wan-AI/Wan2.2-Dancer-14B (global model)](https://modelscope.cn/models/Wan-AI/Wan2.2-Dancer-14B)|`wantodance_music_path`, `wantodance_reference_image`, `wantodance_fps`, `wantodance_keyframes`, `wantodance_keyframes_mask`|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_inference/Wan2.2-Dancer-14B-global.py)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_inference_low_vram/Wan2.2-Dancer-14B-global.py)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_training/full/Wan2.2-Dancer-14B-global.sh)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_training/validate_full/Wan2.2-Dancer-14B-global.py)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_training/lora/Wan2.2-Dancer-14B-global.sh)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_training/validate_lora/Wan2.2-Dancer-14B-global.py)|
-|[Wan-AI/Wan2.2-Dancer-14B (local model)](https://modelscope.cn/models/Wan-AI/Wan2.2-Dancer-14B)|`wantodance_music_path`, `wantodance_reference_image`, `wantodance_fps`, `wantodance_keyframes`, `wantodance_keyframes_mask`|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_inference/Wan2.2-Dancer-14B-local.py)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_inference_low_vram/Wan2.2-Dancer-14B-local.py)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_training/full/Wan2.2-Dancer-14B-local.sh)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_training/validate_full/Wan2.2-Dancer-14B-local.py)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_training/lora/Wan2.2-Dancer-14B-local.sh)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_training/validate_lora/Wan2.2-Dancer-14B-local.py)|
+|[Wan-AI/Wan-Dancer-14B (global model)](https://modelscope.cn/models/Wan-AI/Wan-Dancer-14B)|`wantodance_music_path`, `wantodance_reference_image`, `wantodance_fps`, `wantodance_keyframes`, `wantodance_keyframes_mask`|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_inference/Wan-Dancer-14B-global.py)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_inference_low_vram/Wan-Dancer-14B-global.py)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_training/full/Wan-Dancer-14B-global.sh)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_training/validate_full/Wan-Dancer-14B-global.py)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_training/lora/Wan-Dancer-14B-global.sh)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_training/validate_lora/Wan-Dancer-14B-global.py)|
+|[Wan-AI/Wan-Dancer-14B (local model)](https://modelscope.cn/models/Wan-AI/Wan-Dancer-14B)|`wantodance_music_path`, `wantodance_reference_image`, `wantodance_fps`, `wantodance_keyframes`, `wantodance_keyframes_mask`|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_inference/Wan-Dancer-14B-local.py)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_inference_low_vram/Wan-Dancer-14B-local.py)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_training/full/Wan-Dancer-14B-local.sh)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_training/validate_full/Wan-Dancer-14B-local.py)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_training/lora/Wan-Dancer-14B-local.sh)|[code](https://github.com/modelscope/DiffSynth-Studio/blob/main/examples/wanvideo/model_training/validate_lora/Wan-Dancer-14B-local.py)|
 
 </details>
 

@@ -39,6 +39,8 @@
    Model_Details/Stable-Diffusion-XL
    Model_Details/Image-Quality-Metrics
    Model_Details/Ideogram-4
+   Model_Details/Krea-2
+   Model_Details/Boogu-Image
 
 .. toctree::
    :maxdepth: 2
@@ -87,6 +89,7 @@
 
    Research_Tutorial/train_from_scratch
    Research_Tutorial/inference_time_scaling
+   Research_Tutorial/controllable_models
 
 .. toctree::
    :maxdepth: 2

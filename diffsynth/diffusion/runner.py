@@ -1,4 +1,4 @@
-import os, torch, importlib
+import os, json, torch, importlib
 from tqdm import tqdm
 from accelerate import Accelerator
 from .training_module import DiffusionTrainingModule
@@ -113,6 +113,20 @@ def get_optimizer_class(customized_optimizer=None):
         return getattr(module, class_name)
 
 
+def save_training_args(args):
+    output_path = getattr(args, "output_path", None) if args is not None else None
+    if output_path is None:
+        return
+    try:
+        os.makedirs(args.output_path, exist_ok=True)
+        save_path = os.path.join(args.output_path, "training_args.json")
+        with open(save_path, "w", encoding="utf-8") as f:
+            json.dump(vars(args), f, indent=4, ensure_ascii=False, default=str)
+        print(f"Training arguments saved to `{save_path}`.")
+    except Exception as e:
+        print(f"Warning: failed to save training arguments: {e}")
+
+
 def launch_training_task(
     accelerator: Accelerator,
     dataset: torch.utils.data.Dataset,
@@ -154,6 +168,9 @@ def launch_training_task(
         show_smooth_loss = args.show_smooth_loss
         show_lr = args.show_lr
         dump_loss_file = args.dump_loss_file
+
+    if accelerator.is_main_process:
+        save_training_args(args)
 
     optimizer_class = get_optimizer_class(customized_optimizer)
     

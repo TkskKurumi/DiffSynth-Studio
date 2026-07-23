@@ -5,3 +5,4 @@ from .runner import launch_training_task, launch_data_process_task
 from .parsers import *
 from .loss import *
 from .lr_scheduler import get_scheduler
+from .dmd2 import *
