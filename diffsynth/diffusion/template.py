@@ -31,7 +31,7 @@ def check_template_model_format(model):
         raise NotImplementedError("`**kwargs` is not included in `forward`.")
 
 
-def load_template_model(path, torch_dtype=torch.bfloat16, device="cuda", verbose=1):
+def load_template_model(path, torch_dtype=torch.bfloat16, device="cuda", verbose=1, state_dict=None):
     spec = importlib.util.spec_from_file_location("template_model", os.path.join(path, "model.py"))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -44,6 +44,7 @@ def load_template_model(path, torch_dtype=torch.bfloat16, device="cuda", verbose
             path=os.path.join(path, getattr(module, 'TEMPLATE_MODEL_PATH')),
             torch_dtype=torch_dtype,
             device=device,
+            state_dict=state_dict,
         )
     else:
         # Without `TEMPLATE_MODEL_PATH`, a randomly initialized model or a non-model module will be loaded.
@@ -97,7 +98,7 @@ class TemplatePipeline(torch.nn.Module):
             for model_config in model_configs:
                 TemplatePipeline.check_vram_config(model_config)
                 model_config.download_if_necessary()
-                model = load_template_model(model_config.path, torch_dtype=torch_dtype, device=device)
+                model = load_template_model(model_config.path, torch_dtype=torch_dtype, device=device, state_dict=model_config.state_dict)
                 models.append(model)
             self.models = torch.nn.ModuleList(models)
 
@@ -115,6 +116,9 @@ class TemplatePipeline(torch.nn.Module):
                 v = torch.concat([kv[1] for kv in kv_list], dim=1)
                 kv_cache_merged[name] = (k, v)
         return kv_cache_merged
+
+    def merge_sequential_embeddings(self, embeddings: List[torch.Tensor]):
+        return torch.concat(embeddings, dim=-2)
     
     def merge_template_cache(self, template_cache_list):
         params = sorted(list(set(sum([list(template_cache.keys()) for template_cache in template_cache_list], []))))
@@ -125,6 +129,8 @@ class TemplatePipeline(torch.nn.Module):
                 data = self.merge_kv_cache(data)
             elif param == "lora":
                 data = merge_lora(data)
+            elif param == "text_embedding":
+                data = self.merge_sequential_embeddings(data)
             elif len(data) == 1:
                 data = data[0]
             else:
@@ -159,7 +165,7 @@ class TemplatePipeline(torch.nn.Module):
         if self.lazy_loading:
             model_config = self.model_configs[model_id]
             model_config.download_if_necessary()
-            model = load_template_model(model_config.path, torch_dtype=self.torch_dtype, device=self.device)
+            model = load_template_model(model_config.path, torch_dtype=self.torch_dtype, device=self.device, state_dict=model_config.state_dict)
         else:
             model = self.models[model_id]
         return model

@@ -2,6 +2,7 @@ import torch, os, argparse, accelerate
 from diffsynth.core import UnifiedDataset
 from diffsynth.pipelines.stable_diffusion_xl import StableDiffusionXLPipeline, ModelConfig
 from diffsynth.diffusion import *
+from diffsynth.utils.lora.sdxl import SdxlLoRAConverter
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
@@ -18,13 +19,14 @@ class StableDiffusionXLTrainingModule(DiffusionTrainingModule):
         extra_inputs=None,
         fp8_models=None,
         offload_models=None,
+        quant_options=None,
         resume_from_checkpoint=None, remove_prefix_in_ckpt=None,
         device="cpu",
         task="sft",
     ):
         super().__init__()
         # Load models
-        model_configs = self.parse_model_configs(model_paths, model_id_with_origin_paths, fp8_models=fp8_models, offload_models=offload_models, device=device)
+        model_configs = self.parse_model_configs(model_paths, model_id_with_origin_paths, fp8_models=fp8_models, offload_models=offload_models, quant_options=quant_options, device=device)
         tokenizer_config = self.parse_path_or_model_id(tokenizer_path, ModelConfig(model_id="stabilityai/stable-diffusion-xl-base-1.0", origin_file_pattern="tokenizer/"))
         tokenizer_2_config = self.parse_path_or_model_id(tokenizer_path, ModelConfig(model_id="stabilityai/stable-diffusion-xl-base-1.0", origin_file_pattern="tokenizer_2/"))
         self.pipe = StableDiffusionXLPipeline.from_pretrained(torch_dtype=torch.float32, device=device, model_configs=model_configs, tokenizer_config=tokenizer_config, tokenizer_2_config=tokenizer_2_config)
@@ -88,6 +90,7 @@ def parser():
     parser = add_image_size_config(parser)
     parser.add_argument("--tokenizer_path", type=str, default=None, help="Path to tokenizer.")
     parser.add_argument("--tokenizer_2_path", type=str, default=None, help="Path to tokenizer 2.")
+    parser.add_argument("--align_to_opensource_format", default=False, action="store_true", help="Whether to align the lora format to opensource format.")
     return parser
 
 
@@ -128,6 +131,7 @@ if __name__ == "__main__":
         extra_inputs=args.extra_inputs,
         fp8_models=args.fp8_models,
         offload_models=args.offload_models,
+        quant_options=args.quant_options,
         resume_from_checkpoint=args.resume_from_checkpoint,
         remove_prefix_in_ckpt=args.remove_prefix_in_ckpt,
         task=args.task,
@@ -136,11 +140,13 @@ if __name__ == "__main__":
     model_logger = ModelLogger(
         args.output_path,
         remove_prefix_in_ckpt=args.remove_prefix_in_ckpt,
+        state_dict_converter=SdxlLoRAConverter.align_to_opensource_format if args.align_to_opensource_format else lambda x:x,
         enable_tensorboard_log=args.enable_tensorboard_log,
         enable_swanlab_log=args.enable_swanlab_log,
         swanlab_project=args.swanlab_project,
         enable_wandb_log=args.enable_wandb_log,
         wandb_project=args.wandb_project,
+        enable_csv_log=args.enable_csv_log,
     )
     launcher_map = {
         "sft:data_process": launch_data_process_task,

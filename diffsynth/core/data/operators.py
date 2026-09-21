@@ -1,8 +1,30 @@
-import math, warnings
+import math, warnings, time
 import torch, torchvision, imageio, os
 import imageio.v3 as iio
+import urllib.request
+from io import BytesIO
 from PIL import Image
 from einops import repeat
+
+
+def _is_url(path):
+    return isinstance(path, str) and path.startswith(("http://", "https://"))
+
+
+def _load_image_from_url(url, timeout=30, max_retries=3):
+    request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; DiffSynth-Studio)"})
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                image = Image.open(BytesIO(response.read()))
+                image.load()
+            return image
+        except Exception as e:
+            last_error = e
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)
+    raise RuntimeError(f"Failed to load image from URL '{url}' after {max_retries} attempts: {last_error}") from last_error
 
 
 class DataProcessingPipeline:
@@ -55,12 +77,17 @@ class ToStr(DataProcessingOperator):
 
 
 class LoadImage(DataProcessingOperator):
-    def __init__(self, convert_RGB=True, convert_RGBA=False):
+    def __init__(self, convert_RGB=True, convert_RGBA=False, url_timeout=30, url_max_retries=3):
         self.convert_RGB = convert_RGB
         self.convert_RGBA = convert_RGBA
-    
+        self.url_timeout = url_timeout
+        self.url_max_retries = url_max_retries
+
     def __call__(self, data: str):
-        image = Image.open(data)
+        if _is_url(data):
+            image = _load_image_from_url(data, timeout=self.url_timeout, max_retries=self.url_max_retries)
+        else:
+            image = Image.open(data)
         if self.convert_RGB: image = image.convert("RGB")
         if self.convert_RGBA: image = image.convert("RGBA")
         return image
@@ -242,6 +269,9 @@ class ToAbsolutePath(DataProcessingOperator):
         self.base_path = base_path
         
     def __call__(self, data):
+        # A remote URL is already absolute; joining it with base_path would corrupt it.
+        if _is_url(data):
+            return data
         return os.path.join(self.base_path, data)
 
 
@@ -277,8 +307,8 @@ class LoadAudioWithTorchaudio(DataProcessingOperator, FrameSamplerByRateMixin):
                 padding = target_samples - current_samples
                 waveform = torch.nn.functional.pad(waveform, (0, padding))
             return waveform, sample_rate
-        except:
-            warnings.warn(f"Cannot load audio in {data}. The audio will be `None`.")
+        except Exception as e:
+            warnings.warn(f"Cannot load audio in {data} due to {e}. The audio will be `None`.")
             return None
 
 
@@ -309,3 +339,50 @@ class LoadPureAudioWithTorchaudio(DataProcessingOperator):
         except Exception as e:
             print(f"Cannot load audio in {data} due to {e}. The audio will be `None`.")
             return None
+
+
+class LoadMultiTrackAudio(DataProcessingOperator):
+    def __init__(self, target_sample_rate=48000, max_audio_duration=None, division_factor=1):
+        self.target_sample_rate = target_sample_rate
+        self.max_audio_duration = max_audio_duration
+        self.division_factor = division_factor
+        import torchaudio
+        self.audio_loader = torchaudio.load
+        self.audio_resampler = torchaudio.functional.resample
+
+    def load_audio(self, path):
+        waveform, sample_rate = self.audio_loader(path)
+        if len(waveform.shape) == 2 and waveform.shape[0] == 1:
+            waveform = repeat(waveform, "c l -> (n c) l", n=2)
+        if self.target_sample_rate is not None and sample_rate != self.target_sample_rate:
+            waveform = self.audio_resampler(waveform, sample_rate, self.target_sample_rate)
+            sample_rate = self.target_sample_rate
+        if self.max_audio_duration is not None and waveform.shape[1] > sample_rate * self.max_audio_duration:
+            waveform = waveform[:, :int(sample_rate * self.max_audio_duration)]
+        if self.division_factor is not None:
+            waveform = waveform[:, :waveform.shape[1] // self.division_factor * self.division_factor]
+        return waveform
+
+    def load_latents(self, path):
+        latents = torch.load(path, weights_only=True, map_location="cpu")
+        return latents
+
+    def load_single_data(self, path):
+        if path is None:
+            return None
+        elif path.endswith(".pth"):
+            return self.load_latents(path)
+        else:
+            return self.load_audio(path)
+
+    def __call__(self, data):
+        if isinstance(data, str):
+            return self.load_single_data(data)
+        else:
+            audio = {}
+            for name, path in data.items():
+                audio[name] = self.load_single_data(path)
+            min_length = min([audio[name].shape[1] for name in audio if audio[name] is not None])
+            min_length = min_length // self.division_factor * self.division_factor
+            audio = {name: audio[name][:, :min_length] for name in audio}
+        return audio
