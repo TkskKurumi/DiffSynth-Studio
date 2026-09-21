@@ -2,37 +2,113 @@ import math
 import torch
 from typing import Tuple, List
 
-# class CosineWarmupRestartLR(torch.optim.lr_scheduler.LambdaLR):
-#     """
-#     Learning rate scheduler with linear warmup + cosine annealing + periodic restarts.
+class PiecewiseLR(torch.optim.lr_scheduler.LambdaLR):
+    def __init__(self,
+                 optimizer: torch.optim.Optimizer,
+                 pieces: List[Tuple[float, float]],
+                 warmup_steps: int,
+                 restart_step_first: int,
+                 warmup_interp: str = "linear",
+                 interp: str = "linear",
+                 last_epoch: int = -1,
+                 restart_step_multiplier: float = 1.0):
+        
+        # 1. 定义插值函数
+        def interp_linear(st: float, ed: float, x: float) -> float:
+            return st + (ed - st) * x
+        
+        def interp_cosine(st: float, ed: float, x: float) -> float:
+            # x in [0, 1], weight 从 1.0 衰减到 0.0
+            x_weight = (math.cos(x * math.pi) + 1.0) / 2.0
+            return interp_linear(st, ed, 1-x_weight)
+        
+        def interp_exp(st: float, ed: float, x: float) -> float:
+            # 指数插值要求 st 和 ed 严格大于 0
+            if st <= 0 or ed <= 0:
+                return interp_linear(st, ed, x)
+            logs, loge = math.log(st), math.log(ed)
+            return math.exp(interp_linear(logs, loge, x))
 
-#     During warmup (step <= warmup_steps):
-#         lr = lr_max * step / warmup_steps
+        interp_fn_map = {
+            "linear": interp_linear,
+            "cosine": interp_cosine,
+            "exp": interp_exp
+        }
 
-#     After warmup:
-#         lr = lr_max * (cos(pi * ((step - warmup_steps) % restart_steps) / restart_steps) + 1) / 2
-#     """
+        # 2. 参数校验
+        if not pieces:
+            raise ValueError("pieces 不能为空")
+        if warmup_interp not in interp_fn_map:
+            raise ValueError(f"不支持的 warmup_interp: {warmup_interp}")
+        if interp not in interp_fn_map:
+            raise ValueError(f"不支持的 interp: {interp}")
 
-#     def __init__(self, optimizer, warmup_steps: int, restart_steps: int, edecay_steps: int, decay_min=0.5, last_epoch: int = -1):
-#         self.warmup_steps = max(int(warmup_steps), 1)
-#         self.restart_steps = max(int(restart_steps), 1)
-#         self.edecay_steps = max(int(edecay_steps), 1)
-#         self.decay_min = decay_min
+        # 按时间点 t (元组的第一个元素) 排序
+        self.pieces = sorted(pieces, key=lambda x: x[0])
+        self.warmup_steps = warmup_steps
+        self.restart_step_first = restart_step_first
+        self.restart_step_multiplier = restart_step_multiplier
+        self.interp = interp
+        self.warmup_interp = warmup_interp
 
-#         def lr_lambda(current_step):
-#             if current_step <= self.warmup_steps:
-#                 return current_step / self.warmup_steps
-#             else:
-#                 tmp = current_step - self.warmup_steps
-#                 edecay = math.exp(-tmp/self.edecay_steps)
-#                 tmp = tmp % self.restart_steps
-#                 tmp = tmp / self.restart_steps * math.pi
-#                 tmp = (math.cos(tmp) + 1) / 2
-#                 tmp = tmp*edecay
-#                 return self.decay_min + tmp * (1-self.decay_min)
+        # 3. 定义学习率计算逻辑
+        def lr_lambda(current_step: int) -> float:
+            # --- 阶段 1: Warmup ---
+            if current_step < self.warmup_steps:
+                progress = current_step / self.warmup_steps
+                # 修复：明确传入起点 0.0 和终点 1.0
+                return interp_fn_map[self.warmup_interp](0.0, 1.0, progress)
 
-#         super().__init__(optimizer, lr_lambda, last_epoch=last_epoch)
+            # --- 阶段 2: 周期重启 (Restart) ---
+            current_step_after_warmup = current_step - self.warmup_steps
+            
+            if self.restart_step_multiplier == 1.0:
+                periods_passed = current_step_after_warmup // self.restart_step_first
+                period_st = self.warmup_steps + periods_passed * self.restart_step_first
+                period_len = self.restart_step_first
+                period_ed = period_st + period_len
+            else:
+                # 修复：正确初始化 period_st 和 period_len
+                period_st = self.warmup_steps
+                period_len = float(self.restart_step_first)
+                period_ed = period_st + period_len
+                
+                # O(log N) 复杂度寻找当前 step 所在的周期
+                while current_step >= period_ed:
+                    period_st = period_ed
+                    period_len *= self.restart_step_multiplier
+                    period_ed = period_st + period_len
+            
+            # 计算当前周期内的相对进度 [0, 1]
+            period_t = (current_step - period_st) / (period_ed - period_st)
+            # 防止浮点数精度问题导致越界
+            period_t = max(0.0, min(1.0, period_t))
 
+            # --- 阶段 3: 分段插值 (Piecewise) ---
+            # 边界情况：在第一个点之前或最后一个点之后
+            if period_t <= self.pieces[0][0]:
+                return self.pieces[0][1]
+            if period_t >= self.pieces[-1][0]:
+                return self.pieces[-1][1]
+
+            # 修复：正确遍历相邻的区间段
+            for i in range(len(self.pieces) - 1):
+                t0, v0 = self.pieces[i]
+                t1, v1 = self.pieces[i+1]
+                
+                if t0 <= period_t <= t1:
+                    if t1 == t0:  # 防止除零错误
+                        return v0
+                    piece_t = (period_t - t0) / (t1 - t0)
+                    return interp_fn_map[self.interp](v0, v1, piece_t)
+            
+            # 兜底返回 (理论上不会执行到这里)
+            
+            return self.pieces[-1][1]
+
+        super().__init__(optimizer, lr_lambda, last_epoch=last_epoch)
+
+        
 
 class WarmupCosineRestart(torch.optim.lr_scheduler.LambdaLR):
     def __init__(self, 
@@ -134,6 +210,11 @@ def get_scheduler(
             optimizer,
             **scheduler_kwargs
         )
+    elif scheduler_type == "piece":
+            return PiecewiseLR(
+                optimizer,
+                **scheduler_kwargs
+            )
     elif scheduler_type == "constant":
         return torch.optim.lr_scheduler.ConstantLR(optimizer)
     else:
